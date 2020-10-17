@@ -1,3 +1,3 @@
-from .songguess import SongGuess
+from .sg import SongGuess
 
 __all__ = ['SongGuess']

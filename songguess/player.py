@@ -19,19 +19,21 @@ class MusicPlayer(object):
             self.isRunning = False
 
     async def play(self, file: str, start=0, length=0):
-        # TODO: 能匹配不同副檔名
         path = os.path.join(self.cacheFolder, file)
-        if os.path.isfile(path):
-            bfOpt = "-nostdin"
-            if start != 0:
-                bfOpt = bfOpt + " -ss " + timeFormat_ffmpeg(start)
-            if length != 0:
-                bfOpt = bfOpt + " -t " + timeFormat_ffmpeg(length)
+        if not os.path.isfile(path):
+            return
+        bfOpt = "-nostdin"
+        if start != 0:
+            bfOpt = bfOpt + " -ss " + time_format_ffmpeg(start)
+        if length != 0:
+            bfOpt = bfOpt + " -t " + time_format_ffmpeg(length)
 
-            source = discord.FFmpegPCMAudio(path, before_options=bfOpt, options="-vn")
-            # source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
+        source = discord.FFmpegPCMAudio(path, before_options=bfOpt, options="-vn")
+        # source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
 
-            self.voiceClient.play(source)
+        if self.voiceClient.is_playing():
+            self.voiceClient.stop()
+        self.voiceClient.play(source)
         
         # TODO: 拋出例外
 
@@ -40,7 +42,7 @@ class MusicPlayer(object):
             self.voiceClient.stop()
             
 
-def timeFormat_ffmpeg(s: int):
+def time_format_ffmpeg(s: int):
     sec = s % 60
     mins = (s / 60) % 60
     hours = s / 3600
