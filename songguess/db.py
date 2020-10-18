@@ -21,5 +21,24 @@ class FirestoreQDB(QuestionDB):
         pass
 
     def get_data_list(self):
-        
+        return [
+            {
+                "url": "https://www.youtube.com/watch?v=yXxccEqgAO4",
+                "name": "king",
+                "singer": "Kano",
+                "year": "2020"
+            },
+            {
+                "url": "https://www.youtube.com/watch?v=XJLI4I2_ipE",
+                "name": "World On Color",
+                "singer": "Kano",
+                "year": "2015"
+            },
+            {
+                "url": "https://www.youtube.com/watch?v=FlqMQmS0cnU",
+                "name": "Crossroad",
+                "singer": "Yuiko",
+                "year": "2012"
+            }
+        ]
         pass

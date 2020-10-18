@@ -14,7 +14,7 @@ ytdl_opts = {
         'noplaylist': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
+            'preferredcodec': 'opus',
         }]
 }
 
@@ -34,9 +34,16 @@ class Question(object):
 
     async def _download_song(self):
         assert self.info["url"], "no download url"
-        ie = await self.loop.run_in_executor(self.thread_pool,
-                functools.partial(self.downloader.extract_info, self.info["url"], download=True))
+        for _ in range(5):
+            try:
+                ie = await self.loop.run_in_executor(self.thread_pool,
+                        functools.partial(self.downloader.extract_info, self.info["url"], download=True))
+                break
+            except Exception as e:
+                print(f"Error on download: {str(e)}")
+        else:
+            raise youtube_dl.utils.DownloadError
         self.is_ready = True
-        return ie["id"]
+        return ie
 
     

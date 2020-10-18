@@ -22,8 +22,11 @@ class Scoring(commands.Cog):
         self.now_answer = ""
 
     @commands.command()
-    async def guess(self, ctx, answer):
-        if ctx.author.name in self.player_score and answer == self.now_answer:
+    async def guess(self, ctx, *, answer):
+        if ctx.author.name not in self.player_score:
+            await ctx.send(f"{ctx.author.name} is not a player.")
+            return
+        if answer == self.now_answer:
             self._add_point(ctx.author.name, 1)
             await ctx.send(f"{ctx.author.name} bingo!")
             # self.sg._next()
@@ -61,4 +64,17 @@ class Scoring(commands.Cog):
         del self.player_score[ctx.author.name]
         await ctx.send(f"{ctx.author.name} has left.")
         
+    @commands.command()
+    async def answer(self, ctx):
+        if ctx.author.name not in self.player_score:
+            await ctx.send(f"{ctx.author.name} is not a player.")
+            return
+        await ctx.send(f"The answer is {self.now_answer}")
+
+    @commands.command()
+    async def scores(self, ctx):
+        if ctx.author.name not in self.player_score:
+            await ctx.send(f"{ctx.author.name} is not a player.")
+            return
+        await ctx.send(f"{self.player_score}")
     
