@@ -2,13 +2,15 @@ import discord
 from discord.ext import commands
 
 from .question import Question
+from .sql import FirestoreSGSQL
 
 class QuestionQueue(object):
-    def __init__(self):
+    def __init__(self, sql: FirestoreSGSQL):
+        self.sql = sql
         self.qlist = []
 
-    def prepare(self, qdb, loop):
-        entries = qdb.get_data_list()
+    def prepare(self, loop):
+        entries = self.sql.get_result_list()
         for entry in entries:
             assert entry["url"], "no download url"
             q = Question(entry, loop)

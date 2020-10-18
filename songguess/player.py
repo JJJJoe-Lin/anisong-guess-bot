@@ -8,22 +8,22 @@ from discord.ext import commands
 class MusicPlayer(object):
     def __init__(self, cache: str):
         self.voiceClient = None
-        self.is_running = False
+        self.is_connected = False
         self.now_playing = {"file": "", "start": 0, "length": 0}
         self.cacheFolder = cache
 
     async def start(self, channel: discord.VoiceChannel):
         self.voiceClient = await channel.connect()
-        self.is_running = True
+        self.is_connected = True
 
     async def close(self):
         if self.voiceClient.is_connected():
             await self.voiceClient.disconnect()
-            self.is_running = False
+            self.is_connected = False
 
     async def play(self, file: str, start=0, length=0):
         path = os.path.join(self.cacheFolder, file)
-        assert self.is_running, "Player is not running"
+        assert self.is_connected, "Player is not running"
         assert os.path.isfile(path), "Path is not exist"
 
         bfOpt = "-nostdin"
@@ -46,7 +46,7 @@ class MusicPlayer(object):
         self.now_playing["length"] = length
 
     def stop(self):
-        assert self.is_running, "Player is not running"
+        assert self.is_connected, "Player is not running"
         if self.voiceClient.is_playing():
             self.voiceClient.stop()
 
@@ -57,12 +57,12 @@ class MusicPlayer(object):
             print(f"Error trying to delete {path}: {str(e)}")
 
     async def stop_and_delete(self):
-        assert self.is_running, "Player is not running"
+        assert self.is_connected, "Player is not running"
         self.stop()
         await self._delete_file(os.path.join(self.cacheFolder, self.now_playing["file"]))
 
     async def replay(self):
-        assert self.is_running, "Player is not running"
+        assert self.is_connected, "Player is not running"
         await self.play(**self.now_playing)
 
 

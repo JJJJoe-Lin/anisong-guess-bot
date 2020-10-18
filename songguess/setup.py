@@ -1,7 +1,9 @@
 import os, sys
 from configparser import ConfigParser
 
-from . import SongGuess
+from .sg import SongGuess
+from .sql import FirestoreSGSQL
+from .scoring import Scoring
 
 def setup(bot):
     config = ConfigParser()
@@ -10,5 +12,10 @@ def setup(bot):
         print("Can't read config file", file=sys.stderr)
         return
 
-    sg = SongGuess(bot, config)
+    scoring = Scoring()
+    sql = FirestoreSGSQL()
+    sg = SongGuess(bot, config, scoring, sql)
+
+    bot.add_cog(scoring)
+    bot.add_cog(sql)
     bot.add_cog(sg)

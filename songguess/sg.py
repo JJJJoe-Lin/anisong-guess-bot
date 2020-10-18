@@ -1,4 +1,5 @@
 import os
+from functools import wraps
 
 import discord
 from discord.ext import commands
@@ -7,12 +8,44 @@ from .player import MusicPlayer
 from .db import FirestoreQDB
 from .queue import QuestionQueue
 from .scoring import Scoring
+from .sql import FirestoreSGSQL
+
+def _in_game_command(func):
+    @wraps(func)
+    async def wrap(self, ctx, *args, **kwargs):
+        if not self.is_playing:
+            await ctx.send(f"This command can only use in game running.")
+            return
+        if ctx.author.name not in self.scoring.player_info:
+            await ctx.send(f"Please join the game first.")
+            return
+        await func(self, ctx, *args, **kwargs)
+    return wrap
+
+def _setting_command(func):
+    @wraps(func)
+    async def wrap(self, ctx, *args, **kwargs):
+        if self.is_playing:
+            await ctx.send(f"This command can only use when game is not running.")
+            return
+        await func(self, ctx, *args, **kwargs)
+    return wrap
+
+def _player_command(func):
+    @wraps(func)
+    async def wrap(self, ctx, *args, **kwargs):
+        if not self.player.is_connected:
+            await ctx.send("Please let bot join a voice channel first.")
+            return
+        await func(self, ctx, *args, **kwargs)
+    return wrap
 
 class SongGuess(commands.Cog):
-    def __init__(self, bot, config):
+    def __init__(self, bot, config, scoring: Scoring, sql: FirestoreSGSQL):
         self.bot = bot
         self.config = config
-        self.is_playing = False
+        
+        # bot attribute
         self.support_answer_type = ["name", "singer", "year"]
         self.support_starting_point = ["beginning", "intro", "chorus", "verse"]
 
@@ -33,15 +66,15 @@ class SongGuess(commands.Cog):
 
         # initial objects
         self.player = MusicPlayer(self.cache_folder)
-        self.qdb = FirestoreQDB()
-        self.qlist = QuestionQueue()
-        self.scoring = Scoring()
+        self.qlist = QuestionQueue(sql)
+        self.scoring = scoring
 
-        bot.add_cog(self.scoring)
+        # game state
+        self.is_playing = False
+        self.answer = ""
 
     async def _end_game(self, ctx):
-        if self.player.is_running:
-            await self.player.stop_and_delete()
+        await self.player.stop_and_delete()
         
         for file in os.listdir(self.cache_folder):
             try:
@@ -49,6 +82,7 @@ class SongGuess(commands.Cog):
             except Exception as e:
                 print(f"Error trying to delete {file}: {str(e)}")
         
+        self.answer = ""
         self.is_playing = False
         await ctx.send("Game End!")
 
@@ -59,7 +93,7 @@ class SongGuess(commands.Cog):
             await self._end_game(ctx)
             return
         
-        self.scoring.now_answer = q.info[self.ans_type]
+        self.answer = q.info[self.ans_type]
         start = q.info.get(self.starting_point, 0)
         length = self.song_length
         if start + length > int(q.task.result()["duration"]):
@@ -70,6 +104,8 @@ class SongGuess(commands.Cog):
         await self.player.play(f'{q.task.result()["id"]}.opus', start, length)
         await ctx.send("New round start!")
 
+    """ Game Control """
+
     @commands.command()
     async def summon(self, ctx):
         if ctx.author.voice and ctx.author.voice.channel:
@@ -78,62 +114,72 @@ class SongGuess(commands.Cog):
             await ctx.send("Please join a voice channel first.")
 
     @commands.command()
+    @_player_command
     async def disconnect(self, ctx):
         await self.player.close()
 
     @commands.command()
+    @_player_command
     async def play(self, ctx):
         if self.is_playing:
-            await ctx.send("Game is running.")
-            return
-        
-        if not self.player.is_running:
-            await ctx.send("Please let bot join a voice channel first.")
+            await ctx.send("Game is already running.")
             return
 
         await ctx.send("Game loading...")
 
-        self.scoring.reset()
+        self.scoring._reset_point()
         self.is_playing = True
-        self.qlist.prepare(self.qdb, self.bot.loop)
+        self.qlist.prepare(self.bot.loop)
 
         await ctx.send("Game start!")
 
         await self._start_round(ctx)
 
     @commands.command(name="next")
+    @_in_game_command
+    @_player_command
     async def next_round(self, ctx):
-        if not self.is_playing:
-            await ctx.send("Game is not running.")
-            return
-
-        if not self.player.is_running:
-            await ctx.send("Please let bot join a voice channel first.")
-            return
-
         await self._start_round(ctx)
 
     @commands.command()
+    @_in_game_command
+    @_player_command
     async def end(self, ctx):
-        if not self.is_playing:
-            await ctx.send("Game is not running.")
-            return
-
         await self._end_game(ctx)
 
     @commands.command()
+    @_in_game_command
+    @_player_command
     async def replay(self, ctx):
         await self.player.replay()
 
     @commands.command()
+    @_in_game_command
+    @_player_command
     async def stop(self, ctx):
         await self.player.stop()
+
+    @commands.command()
+    @_in_game_command
+    async def guess(self, ctx, *, answer):
+        if answer == self.answer:
+            self.scoring._add_point(ctx.author.name, 1)
+            await ctx.send(f"{ctx.author.name} bingo!")
+            # self.next_round()
+
+    @commands.command(name="answer")
+    @_in_game_command
+    async def show_answer(self, ctx):
+        await ctx.send(f"The answer is {self.answer}")
+
+    """ Rule Setting """
 
     @commands.group(case_insensitive=True)
     async def rule(self, ctx):
         pass
 
     @rule.command(name="ans_type")
+    @_setting_command
     async def set_ans_type(self, ctx, ans_type):
         at = ans_type.lower()
         if at not in self.support_answer_type:
@@ -144,6 +190,7 @@ class SongGuess(commands.Cog):
         await ctx.send(f"answer type is set to {at}")
 
     @rule.command(name="start_point")
+    @_setting_command
     async def set_starting_point(self, ctx, start_point):
         sp = start_point.lower()
         if sp not in self.support_starting_point:
@@ -154,6 +201,7 @@ class SongGuess(commands.Cog):
         await ctx.send(f"song would start from {sp}")
 
     @rule.command(name="length")
+    @_setting_command
     async def set_length(self, ctx, length):
         try:
             l = int(length)
@@ -164,6 +212,7 @@ class SongGuess(commands.Cog):
             await ctx.send(f"song length is set to {l}")
 
     @rule.command(name="amount")
+    @_setting_command
     async def set_amount(self, ctx, amount):
         try:
             am = int(amount)
@@ -183,4 +232,3 @@ class SongGuess(commands.Cog):
               f"Starting point of songs: {self.starting_point}\n" \
               f"Song length: {self.song_length}\n"
         await ctx.send(msg)
-
