@@ -12,7 +12,9 @@ def _need_join(func):
     return wrap
 
 class Scoring(commands.Cog):
-    def __init__(self):
+    def __init__(self, bot, config):
+        self.bot = bot
+        self.config = config
         self.player_info = {}
     
     def _add_point(self, player, point):

@@ -2,26 +2,27 @@ import abc
 
 from discord.ext import commands
 
-from .db import FirestoreQDB
+from .db import DatabaseABC
 
 class CogABCMeta(commands.CogMeta, abc.ABCMeta):
     pass
 
-class SgSQL(abc.ABC):
+class QuestionDB(abc.ABC):
 
     @abc.abstractmethod
-    def get_result_list(self):
+    def get_result(self):
         pass
 
-class FirestoreSGSQL(commands.Cog, SgSQL, metaclass=CogABCMeta):
-    def __init__(self):
+class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
+    def __init__(self, bot, config, db: DatabaseABC):
+        self.bot = bot
+        self.config = config
+        self.db = db
+
         # condition config
         self.cond_singer = []
         self.cond_year = []
         self.cond_attr = []
-
-        # TODO: initial database
-        self.db = FirestoreQDB()
 
     """ Condition Setting """
 
@@ -100,19 +101,16 @@ class FirestoreSGSQL(commands.Cog, SgSQL, metaclass=CogABCMeta):
             msg += f"attr in {self.cond_attr}\n"
         await ctx.send(msg)
 
-    def _send_query(self):
-        self.db.prepare()
+    def _send_get_ques_query(self):
+        ref = None
         if self.cond_singer:
-            self.db.exec_query(["singer", "in", self.cond_singer])
+            ref = self.db.exec_query(["singer", "in", self.cond_singer], ref)
         if self.cond_year:
             for cond in self.cond_year:
-                self.db.exec_query(["year", cond[0], cond[1]])
+                ref = self.db.exec_query(["year", cond[0], cond[1]], ref)
         if self.cond_attr:
-            self.db.exec_query(["attr", "array_contains_any", self.cond_attr])
-        return self.db.get_result()
-    
-    def _parse_result(self, result):
-        return result
+            ref = self.db.exec_query(["attr", "array_contains_any", self.cond_attr], ref)
+        return self.db.get_results(ref)
 
-    def get_result_list(self):
-        return self._parse_result(self._send_query())
+    def get_result(self):
+        return self._send_get_ques_query()

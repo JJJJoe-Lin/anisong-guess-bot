@@ -2,8 +2,6 @@ import asyncio
 import functools
 from concurrent.futures import ThreadPoolExecutor
 
-import discord
-from discord.ext import commands
 import youtube_dl
 
 ytdl_opts = {
@@ -23,13 +21,11 @@ class Question(object):
         self.info = info
         self.loop = loop
         self.task = None
-        self.is_ready = False
         self.thread_pool = ThreadPoolExecutor(max_workers=2)
         self.downloader = youtube_dl.YoutubeDL(ytdl_opts)
         pass
 
     def set_download_task(self):
-        assert not self.is_ready and not self.task, "file has downloaded"
         self.task = self.loop.create_task(self._download_song())
 
     async def _download_song(self):
@@ -43,7 +39,6 @@ class Question(object):
                 print(f"Error on download: {str(e)}")
         else:
             raise youtube_dl.utils.DownloadError
-        self.is_ready = True
         return ie
 
     

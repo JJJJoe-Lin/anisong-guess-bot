@@ -1,14 +1,12 @@
 import os
 from functools import wraps
 
-import discord
 from discord.ext import commands
 
 from .player import MusicPlayer
-from .db import FirestoreQDB
 from .queue import QuestionQueue
 from .scoring import Scoring
-from .sql import FirestoreSGSQL
+from .qdb import SgQDB
 
 def _in_game_command(func):
     @wraps(func)
@@ -41,7 +39,7 @@ def _player_command(func):
     return wrap
 
 class SongGuess(commands.Cog):
-    def __init__(self, bot, config, scoring: Scoring, sql: FirestoreSGSQL):
+    def __init__(self, bot, config, scoring: Scoring, qdb: SgQDB):
         self.bot = bot
         self.config = config
         
@@ -66,7 +64,7 @@ class SongGuess(commands.Cog):
 
         # initial objects
         self.player = MusicPlayer(self.cache_folder)
-        self.qlist = QuestionQueue(sql)
+        self.qlist = QuestionQueue(qdb)
         self.scoring = scoring
 
         # game state
@@ -74,7 +72,8 @@ class SongGuess(commands.Cog):
         self.answer = ""
 
     async def _end_game(self, ctx):
-        await self.player.stop_and_delete()
+        # self.player.stop_and_delete()
+        self.player.stop()
         
         for file in os.listdir(self.cache_folder):
             try:
@@ -129,7 +128,7 @@ class SongGuess(commands.Cog):
 
         self.scoring._reset_point()
         self.is_playing = True
-        self.qlist.prepare(self.bot.loop)
+        self.qlist.prepare(self.bot.loop, self.question_amount)
 
         await ctx.send("Game start!")
 

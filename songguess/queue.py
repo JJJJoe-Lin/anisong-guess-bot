@@ -1,16 +1,21 @@
-import discord
-from discord.ext import commands
+import random
 
 from .question import Question
-from .sql import FirestoreSGSQL
+from .qdb import SgQDB
 
 class QuestionQueue(object):
-    def __init__(self, sql: FirestoreSGSQL):
-        self.sql = sql
+    def __init__(self, qdb: SgQDB):
+        self.qdb = qdb
         self.qlist = []
 
-    def prepare(self, loop):
-        entries = self.sql.get_result_list()
+    def prepare(self, loop, amount):
+        entries = self.qdb.get_result()
+
+        if len(entries) > amount:
+            entries = random.sample(entries, amount)
+        else:
+            random.shuffle(entries)
+
         for entry in entries:
             assert entry["url"], "no download url"
             q = Question(entry, loop)
@@ -18,6 +23,7 @@ class QuestionQueue(object):
 
         # TODO: 下載排程
         for q in self.qlist:
+            print(q.info["name"])
             q.set_download_task()
 
     async def get_question(self):
