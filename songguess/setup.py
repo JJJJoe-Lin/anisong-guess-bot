@@ -16,8 +16,7 @@ def setup(bot):
     # initial database
     db_type = config.get("Bot", "database", fallback="firestore")
     if db_type == "firestore":
-        db = FirestoreDB(config.get("Firestore", "key_path", fallback="./key.json"),
-                         config.get("Firestore", "collection", fallback="anime_song"))
+        db = FirestoreDB(config.get("Firestore", "key_path", fallback="./key.json"))
     else:
         print("not support this type of database", file=sys.stderr)
         return

@@ -1,4 +1,5 @@
 import abc
+from collections import OrderedDict
 
 from discord.ext import commands
 
@@ -10,7 +11,7 @@ class CogABCMeta(commands.CogMeta, abc.ABCMeta):
 class QuestionDB(abc.ABC):
 
     @abc.abstractmethod
-    def get_result(self):
+    def get_questions(self):
         pass
 
 class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
@@ -19,11 +20,10 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
         self.config = config
         self.db = db
 
-        # condition config
-        self.cond_singer = []
-        self.cond_year = []
-        self.cond_attr = []
-
+        self.theme = config.get("QDB", "theme", fallback="anime_song")
+        self.conditions = {}        # conditions format: {<field>: [(<op>, <value>),...]}
+        self.cache = OrderedDict()
+    
     """ Condition Setting """
 
     @commands.group()
@@ -39,10 +39,25 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
         Format: singer {is | include} <value>
         """
         op, value = cond.split(" ", 1)
+
         if op.lower() == "is":
-            self.cond_singer = [value]
+            if "singer" in self.conditions:
+                for ops in self.conditions["singer"]:
+                    if ops[0] in ["==", "in"]:
+                        del ops
+            else:
+                self.conditions["singer"] = []
+            self.conditions["singer"].append(("==", value))
         elif op.lower() == "include":
-            self.cond_singer.append(value)
+            if "singer" in self.conditions:
+                for ops in self.conditions["singer"]:
+                    if ops[0] == "==":
+                        del ops
+                    elif ops[0] == "in":
+                        ops[1].append(value)
+            else:
+                self.conditions["singer"] = []
+                self.conditions["singer"].append(("in", [value]))
         else:
             await ctx.send("format should be \"singer {is | include} <value>\"")
             return
@@ -57,60 +72,117 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
         try:
             value = int(cond.split(" ", 1)[1])
         except ValueError:
-            await ctx.send("format should be \"year {> | >= | == | =< | <} <value>\"")
+            await ctx.send("format should be \"year {> | >= | == | <= | <} <value>\"")
             return
 
-        if op in [">", ">=", "==", "=<", "<"]:
-            self.cond_year.append([op, value])
+        if op == "==":
+            if "year" in self.conditions:
+                for ops in self.conditions["year"]:
+                    if ops[0] in [">", ">=", "==", "<=", "<"]:
+                        del ops
+            else:
+                self.conditions["year"] = []
+            self.conditions["year"].append(("==", value))
+        elif op in [">", ">="]:
+            if "year" in self.conditions:
+                for ops in self.conditions["year"]:
+                    if ops[0] in [">", ">=", "=="]:
+                        del ops
+                    elif ops[0] in ["<", "<="]:
+                        pass
+            else:
+                self.conditions["year"] = []
+            self.conditions["year"].append((op, value))
+        elif op in ["<", "<="]:
+            if "year" in self.conditions:
+                for ops in self.conditions["year"]:
+                    if ops[0] in ["<", "<=", "=="]:
+                        del ops
+                    elif ops[0] in [">", ">="]:
+                        pass
+            else:
+                self.conditions["year"] = []
+            self.conditions["year"].append((op, value))
         else:
-            await ctx.send("format should be \"year {> | >= | == | =< | <} <value>\"")
+            await ctx.send("format should be \"year {> | >= | == | <= | <} <value>\"")
             return
         await ctx.send(f"condition \"{cond}\" is set")
 
-    @cond.command(name="attr")
-    async def set_cond_attr(self, ctx, *, cond: str):
+    @cond.command(name="tags")
+    async def set_cond_tags(self, ctx, *, cond: str):
         """
-        Format: attr {is | include} <value>
+        Format: tags {is | include} <value>
         """
         op, value = cond.split(" ", 1)
+
         if op.lower() == "is":
-            del self.cond_attr
-            self.cond_attr = [value]
+            if "tags" in self.conditions:
+                for ops in self.conditions["tags"]:
+                    if ops[0] in ["array_contains", "array_contains_any"]:
+                        del ops
+            else:
+                self.conditions["tags"] = []
+            self.conditions["tags"].append(("array_contains", value))
         elif op.lower() == "include":
-            self.cond_attr.append(value)
+            if "tags" in self.conditions:
+                for ops in self.conditions["tags"]:
+                    if ops[0] == "array_contains":
+                        del ops
+                    elif ops[0] == "array_contains_any":
+                        if len(ops[1]) == 10:
+                            await ctx.send("tags 最多只能有 10 個")
+                            return
+                        ops[1].append(value)
+            else:
+                self.conditions["tags"] = []
+                self.conditions["tags"].append(("array_contains_any", [value]))
         else:
-            await ctx.send("format should be \"attr {is | include} <value>\"")
+            await ctx.send("format should be \"tags {is | include} <value>\"")
             return
         await ctx.send(f"condition \"{cond}\" is set")
 
     @cond.command(name="reset")
     async def reset_cond(self, ctx):
-        self.cond_singer = []
-        self.cond_year = []
-        self.cond_attr = []
+        del self.conditions
         await ctx.send("condition has been reset")
 
     @cond.command(name="show")
     async def show_cond(self, ctx):
         msg = f"The condition:\n"
-        if self.cond_singer:
-            msg += f"singer in {self.cond_singer}\n"
-        for cond in self.cond_year:
-            msg += f"year {cond[0]} {cond[1]}\n"
-        if self.cond_attr:
-            msg += f"attr in {self.cond_attr}\n"
+        for field, ops in self.conditions:
+            for op in ops:
+                msg += f"{field} {op[0]} {op[1]}\n"
         await ctx.send(msg)
 
-    def _send_get_ques_query(self):
-        ref = None
-        if self.cond_singer:
-            ref = self.db.exec_query(["singer", "in", self.cond_singer], ref)
-        if self.cond_year:
-            for cond in self.cond_year:
-                ref = self.db.exec_query(["year", cond[0], cond[1]], ref)
-        if self.cond_attr:
-            ref = self.db.exec_query(["attr", "array_contains_any", self.cond_attr], ref)
-        return self.db.get_results(ref)
+    def _send_get_query(self):
+        conflict_conds = []     # 'range_cond on different field', 'in', 'array-contains-any'
+        fix_conds = []
+        result_sets = []
 
-    def get_result(self):
-        return self._send_get_ques_query()
+        for field, ops in self.conditions:
+            range_conds = []      # '<', '<=', '>=', '>', '!='
+            for op in ops:
+                if op[0] in ["<", "<=", ">=", ">", "!="]:
+                    range_conds.append((field, op[0], op[1]))
+                elif op[0] in ["in", "array_contains_any"]:
+                    conflict_conds.append((field, op[0], op[1]))
+                else:
+                    fix_conds.append((field, op[0], op[1]))
+            conflict_conds.append(range_conds)
+
+        for cc in conflict_conds:
+            if isinstance(cc, list):
+                query = cc + fix_conds
+            else:
+                query = [cc] + fix_conds
+            result_sets.append(set(self.db.exec_get(self.theme, query)))
+
+        return set.intersection(*result_sets)
+
+    def get_questions(self):
+        if self.conditions not in self.cache:
+            result = self._send_get_query()
+            if len(self.cache) == 5:
+                self.cache.popitem(last=False)
+            self.cache[self.conditions] = result
+        return self.cache[self.conditions]
