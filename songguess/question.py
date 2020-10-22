@@ -1,6 +1,5 @@
 import asyncio
 import functools
-from concurrent.futures import ThreadPoolExecutor
 
 import youtube_dl
 
@@ -17,11 +16,11 @@ ytdl_opts = {
 }
 
 class Question(object):
-    def __init__(self, info, loop):
+    def __init__(self, info, loop, thread_pool):
         self.info = info
         self.loop = loop
         self.task = None
-        self.thread_pool = ThreadPoolExecutor(max_workers=2)
+        self.thread_pool = thread_pool
         self.downloader = youtube_dl.YoutubeDL(ytdl_opts)
         pass
 

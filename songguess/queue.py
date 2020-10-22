@@ -1,14 +1,24 @@
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 from .question import Question
 from .qdb import SgQDB
 
 class QuestionQueue(object):
-    def __init__(self, qdb: SgQDB):
+    def __init__(self, qdb: SgQDB, event_loop, cache_size: int, thread_num: int):
         self.qdb = qdb
-        self.qlist = []
+        self.loop = event_loop
+        self.cache_size = cache_size
 
-    def prepare(self, loop, amount):
+        self.qlist = []
+        self.thread_pool = ThreadPoolExecutor(max_workers=thread_num)
+
+    def _download_scheduling(self):
+        for i in range(self.cache_size):
+            if self.qlist[i].task is None:
+                self.qlist[i].set_download_task()
+
+    def prepare(self, amount):
         entries = self.qdb.get_result()
 
         if len(entries) > amount:
@@ -18,17 +28,16 @@ class QuestionQueue(object):
 
         for entry in entries:
             assert entry["url"], "no download url"
-            q = Question(entry, loop)
+            q = Question(entry, self.loop, self.thread_pool)
             self.qlist.append(q)
 
-        # TODO: 下載排程
-        for q in self.qlist:
-            print(q.info["name"])
-            q.set_download_task()
+        self._download_scheduling()
+        return len(self.qlist)
 
     async def get_question(self):
         if not self.qlist:
             return None
-        q = self.qlist.pop()
+        q = self.qlist.pop(0)
+        self._download_scheduling()
         await q.task
         return q

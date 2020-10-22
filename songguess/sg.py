@@ -6,7 +6,7 @@ from discord.ext import commands
 from .player import MusicPlayer
 from .queue import QuestionQueue
 from .scoring import Scoring
-from .qdb import SgQDB
+from .queue import QuestionQueue
 
 def _in_game_command(func):
     @wraps(func)
@@ -39,7 +39,7 @@ def _player_command(func):
     return wrap
 
 class SongGuess(commands.Cog):
-    def __init__(self, bot, config, scoring: Scoring, qdb: SgQDB):
+    def __init__(self, bot, config, scoring: Scoring, queue: QuestionQueue):
         self.bot = bot
         self.config = config
         
@@ -48,7 +48,7 @@ class SongGuess(commands.Cog):
         self.support_starting_point = ["beginning", "intro", "chorus", "verse"]
 
         # bot config
-        self.cache_folder = config.get("Bot", "cache_folder", fallback=os.path.join(os.path.dirname(__file__), "../cache"))
+        self.cache_folder = config.get("SongGuess", "cache_folder", fallback=os.path.join(os.path.dirname(__file__), "../cache"))
         
         # rule config
         self.ans_type = config.get("Rule", "answer_type", fallback="name")
@@ -64,7 +64,7 @@ class SongGuess(commands.Cog):
 
         # initial objects
         self.player = MusicPlayer(self.cache_folder)
-        self.qlist = QuestionQueue(qdb)
+        self.qlist = queue
         self.scoring = scoring
 
         # game state
@@ -128,9 +128,9 @@ class SongGuess(commands.Cog):
 
         self.scoring._reset_point()
         self.is_playing = True
-        self.qlist.prepare(self.bot.loop, self.question_amount)
-
-        await ctx.send("Game start!")
+        got = self.qlist.prepare(self.question_amount)
+        if got < self.question_amount:
+            await ctx.send(f"注意：符合條件的題目只有 {got} 題")
 
         await self._start_round(ctx)
 

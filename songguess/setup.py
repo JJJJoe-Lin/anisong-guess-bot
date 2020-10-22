@@ -5,6 +5,7 @@ from .sg import SongGuess
 from .qdb import SgQDB
 from .scoring import Scoring
 from .db import FirestoreDB
+from .queue import QuestionQueue
 
 def setup(bot):
     config = ConfigParser()
@@ -13,18 +14,30 @@ def setup(bot):
         print("Can't read config file", file=sys.stderr)
         return
 
+    # initial scoring system
+    scoring = Scoring(bot, config)
+
     # initial database
-    db_type = config.get("Bot", "database", fallback="firestore")
+    db_type = config.get("SongGuess", "database", fallback="firestore")
     if db_type == "firestore":
-        db = FirestoreDB(config.get("Firestore", "key_path", fallback="./key.json"))
+        key_path = config.get("Firestore", "key_path", fallback="./key.json")
+        db = FirestoreDB(key_path)
     else:
         print("not support this type of database", file=sys.stderr)
         return
 
-    scoring = Scoring(bot, config)
+    # initial QDB
     qdb = SgQDB(bot, config, db)
-    sg = SongGuess(bot, config, scoring, qdb)
 
+    # initial question queue
+    cache_size = config.getint("SongGuess", "downloaded_cache_size", fallback=5)
+    thread_num = config.getint("SongGuess", "thread_num_for_downloading", fallback=4)
+    q_queue = QuestionQueue(qdb, bot.loop, cache_size, thread_num)
+
+    # initial song guess system
+    sg = SongGuess(bot, config, scoring, q_queue)
+    
+    # add bot Cog
     bot.add_cog(scoring)
     bot.add_cog(qdb)
     bot.add_cog(sg)
