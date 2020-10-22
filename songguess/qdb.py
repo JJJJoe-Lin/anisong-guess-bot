@@ -2,6 +2,7 @@ import abc
 from collections import OrderedDict
 
 from discord.ext import commands
+from discord.ext.commands import Group
 
 from .db import DatabaseABC
 
@@ -149,7 +150,7 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
     @cond.command(name="show")
     async def show_cond(self, ctx):
         msg = f"The condition:\n"
-        for field, ops in self.conditions:
+        for field, ops in self.conditions.items():
             for op in ops:
                 msg += f"{field} {op[0]} {op[1]}\n"
         await ctx.send(msg)
@@ -159,7 +160,7 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
         fix_conds = []
         result_sets = []
 
-        for field, ops in self.conditions:
+        for field, ops in self.conditions.items():
             range_conds = []      # '<', '<=', '>=', '>', '!='
             for op in ops:
                 if op[0] in ["<", "<=", ">=", ">", "!="]:
@@ -186,3 +187,69 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
                 self.cache.popitem(last=False)
             self.cache[self.conditions] = result
         return self.cache[self.conditions]
+
+class AnimeSgQDB(SgQDB):
+    cond = SgQDB.cond
+
+    def __init__(self, bot, config, db: DatabaseABC):
+        super().__init__(bot, config, db)
+
+    @cond.command(name="anime")
+    async def set_cond_anime(self, ctx, *, cond: str):
+        """
+        Format: anime {is | include} <value>
+        """
+        op, value = cond.split(" ", 1)
+
+        if op.lower() == "is":
+            if "anime" in self.conditions:
+                for ops in self.conditions["anime"]:
+                    if ops[0] in ["==", "in"]:
+                        del ops
+            else:
+                self.conditions["anime"] = []
+            self.conditions["anime"].append(("==", value))
+        elif op.lower() == "include":
+            if "anime" in self.conditions:
+                for ops in self.conditions["anime"]:
+                    if ops[0] == "==":
+                        del ops
+                    elif ops[0] == "in":
+                        ops[1].append(value)
+            else:
+                self.conditions["anime"] = []
+                self.conditions["anime"].append(("in", [value]))
+        else:
+            await ctx.send("format should be \"anime {is | include} <value>\"")
+            return
+        await ctx.send(f"condition \"{cond}\" is set")
+
+    @cond.command(name="type")
+    async def set_cond_type(self, ctx, *, cond: str):
+        """
+        Format: type {is | include} <value>
+        """
+        op, value = cond.split(" ", 1)
+
+        if op.lower() == "is":
+            if "type" in self.conditions:
+                for ops in self.conditions["type"]:
+                    if ops[0] in ["==", "in"]:
+                        del ops
+            else:
+                self.conditions["type"] = []
+            self.conditions["type"].append(("==", value))
+        elif op.lower() == "include":
+            if "type" in self.conditions:
+                for ops in self.conditions["type"]:
+                    if ops[0] == "==":
+                        del ops
+                    elif ops[0] == "in":
+                        ops[1].append(value)
+            else:
+                self.conditions["type"] = []
+                self.conditions["type"].append(("in", [value]))
+        else:
+            await ctx.send("format should be \"type {is | include} <value>\"")
+            return
+        await ctx.send(f"condition \"{cond}\" is set")

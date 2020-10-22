@@ -2,7 +2,7 @@ import os, sys
 from configparser import ConfigParser
 
 from .sg import SongGuess
-from .qdb import SgQDB
+from .qdb import AnimeSgQDB
 from .scoring import Scoring
 from .db import FirestoreDB
 from .queue import QuestionQueue
@@ -27,7 +27,7 @@ def setup(bot):
         return
 
     # initial QDB
-    qdb = SgQDB(bot, config, db)
+    qdb = AnimeSgQDB(bot, config, db)
 
     # initial question queue
     cache_size = config.getint("SongGuess", "downloaded_cache_size", fallback=5)

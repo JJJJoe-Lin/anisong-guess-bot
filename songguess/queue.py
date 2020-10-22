@@ -2,10 +2,10 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 
 from .question import Question
-from .qdb import SgQDB
+from .qdb import QuestionDB
 
 class QuestionQueue(object):
-    def __init__(self, qdb: SgQDB, event_loop, cache_size: int, thread_num: int):
+    def __init__(self, qdb: QuestionDB, event_loop, cache_size: int, thread_num: int):
         self.qdb = qdb
         self.loop = event_loop
         self.cache_size = cache_size
@@ -19,6 +19,7 @@ class QuestionQueue(object):
                 self.qlist[i].set_download_task()
 
     def prepare(self, amount):
+        self.qlist = []
         entries = self.qdb.get_result()
 
         if len(entries) > amount:

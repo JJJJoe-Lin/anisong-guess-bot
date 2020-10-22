@@ -6,7 +6,6 @@ from discord.ext import commands
 from .player import MusicPlayer
 from .queue import QuestionQueue
 from .scoring import Scoring
-from .queue import QuestionQueue
 
 def _in_game_command(func):
     @wraps(func)
@@ -43,8 +42,8 @@ class SongGuess(commands.Cog):
         self.bot = bot
         self.config = config
         
-        # bot attribute
-        self.support_answer_type = ["name", "singer", "year"]
+        # attribute
+        # self.support_answer_type = ["name", "singer", "year"]
         self.support_starting_point = ["beginning", "intro", "chorus", "verse"]
 
         # bot config
@@ -52,9 +51,9 @@ class SongGuess(commands.Cog):
         
         # rule config
         self.ans_type = config.get("Rule", "answer_type", fallback="name")
-        if self.ans_type not in self.support_answer_type:
-            print("error config in answer_type")
-            self.ans_type = "name"
+        # if self.ans_type not in self.support_answer_type:
+        #     print("error config in answer_type")
+        #     self.ans_type = "name"
         self.starting_point = config.get("Rule", "starting_point", fallback="beginning")
         if self.starting_point not in self.support_starting_point:
             print("error config in starting_point")
@@ -92,6 +91,11 @@ class SongGuess(commands.Cog):
             await self._end_game(ctx)
             return
         
+        if self.ans_type not in q.info:
+            await ctx.send("無法取得答案，請確認 answer_type 是否設定正確")
+            await self._end_game(ctx)
+            return
+
         self.answer = q.info[self.ans_type]
         start = q.info.get(self.starting_point, 0)
         length = self.song_length
@@ -181,10 +185,9 @@ class SongGuess(commands.Cog):
     @_setting_command
     async def set_ans_type(self, ctx, ans_type):
         at = ans_type.lower()
-        if at not in self.support_answer_type:
-            await ctx.send(f"{at} does not support")
-            return
-        
+        # if at not in self.support_answer_type:
+        #     await ctx.send(f"{at} does not support")
+        #     return
         self.ans_type = at
         await ctx.send(f"answer type is set to {at}")
 
