@@ -14,13 +14,17 @@ class QuestionQueue(object):
         self.thread_pool = ThreadPoolExecutor(max_workers=thread_num)
 
     def _download_scheduling(self):
-        for i in range(self.cache_size):
+        size = self.cache_size if len(self.qlist) > self.cache_size else len(self.qlist)
+        for i in range(size):
             if self.qlist[i].task is None:
                 self.qlist[i].set_download_task()
 
     def prepare(self, amount):
         self.qlist = []
-        entries = self.qdb.get_result()
+        entries = self.qdb.get_questions()
+
+        if not entries:
+            return 0
 
         if len(entries) > amount:
             entries = random.sample(entries, amount)

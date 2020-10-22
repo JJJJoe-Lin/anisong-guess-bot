@@ -43,21 +43,22 @@ class SongGuess(commands.Cog):
         self.config = config
         
         # attribute
-        # self.support_answer_type = ["name", "singer", "year"]
         self.support_starting_point = ["beginning", "intro", "chorus", "verse"]
+        self.support_scoring_mode = ["manual", "first-to-win"]
 
         # bot config
         self.cache_folder = config.get("SongGuess", "cache_folder", fallback=os.path.join(os.path.dirname(__file__), "../cache"))
         
         # rule config
         self.ans_type = config.get("Rule", "answer_type", fallback="name")
-        # if self.ans_type not in self.support_answer_type:
-        #     print("error config in answer_type")
-        #     self.ans_type = "name"
         self.starting_point = config.get("Rule", "starting_point", fallback="beginning")
         if self.starting_point not in self.support_starting_point:
             print("error config in starting_point")
             self.starting_point = "beginning"
+        self.scoring_mode = config.get("Rule", "scoring_mode", fallback="first-to-win")
+        if self.scoring_mode not in self.support_scoring_mode:
+            print("error config in scoring_mode")
+            self.starting_point = "first-to-win"
         self.song_length = config.getint("Rule", "song_length", fallback=0)
         self.question_amount = config.getint("Rule", "question_amount", fallback=1)
 
@@ -69,6 +70,7 @@ class SongGuess(commands.Cog):
         # game state
         self.is_playing = False
         self.answer = ""
+        self.winners = []
 
     async def _end_game(self, ctx):
         # self.player.stop_and_delete()
@@ -80,8 +82,11 @@ class SongGuess(commands.Cog):
             except Exception as e:
                 print(f"Error trying to delete {file}: {str(e)}")
         
+        # reset game state
         self.answer = ""
         self.is_playing = False
+        self.winners = []
+        
         await ctx.send("Game End!")
 
     async def _start_round(self, ctx):
@@ -96,7 +101,10 @@ class SongGuess(commands.Cog):
             await self._end_game(ctx)
             return
 
+        # reset game state
         self.answer = q.info[self.ans_type]
+        self.winners = []
+        
         start = q.info.get(self.starting_point, 0)
         length = self.song_length
         if start + length > int(q.task.result()["duration"]):
@@ -130,8 +138,10 @@ class SongGuess(commands.Cog):
 
         await ctx.send("Game loading...")
 
+        # reset game state
         self.scoring._reset_point()
         self.is_playing = True
+        
         got = self.qlist.prepare(self.question_amount)
         if got < self.question_amount:
             await ctx.send(f"注意：符合條件的題目只有 {got} 題")
@@ -165,14 +175,21 @@ class SongGuess(commands.Cog):
     @commands.command()
     @_in_game_command
     async def guess(self, ctx, *, answer):
-        if answer == self.answer:
+        if self.scoring_mode == "manual":
+            await ctx.send(f"{self.scoring_mode} 模式下請自己對答案")
+            return
+        if not self.winners and answer == self.answer:
             self.scoring._add_point(ctx.author.name, 1)
+            self.winners.append(ctx.author.name)
             await ctx.send(f"{ctx.author.name} bingo!")
             # self.next_round()
 
     @commands.command(name="answer")
     @_in_game_command
     async def show_answer(self, ctx):
+        if self.scoring_mode == "first-to-win":
+            if "PC" not in self.winners:
+                self.winners.append("PC")
         await ctx.send(f"The answer is {self.answer}")
 
     """ Rule Setting """
@@ -185,9 +202,6 @@ class SongGuess(commands.Cog):
     @_setting_command
     async def set_ans_type(self, ctx, ans_type):
         at = ans_type.lower()
-        # if at not in self.support_answer_type:
-        #     await ctx.send(f"{at} does not support")
-        #     return
         self.ans_type = at
         await ctx.send(f"answer type is set to {at}")
 
@@ -224,13 +238,25 @@ class SongGuess(commands.Cog):
             self.question_amount = am
             await ctx.send(f"question amount is set to {amount}")
 
+    @rule.command(name="scoring_mode")
+    @_setting_command
+    async def set_scoring_mode(self, ctx, scoring_mode):
+        sm = scoring_mode.lower()
+        if sm not in self.support_scoring_mode:
+            await ctx.send(f"{sm} does not support")
+            return
+        
+        self.scoring_mode = sm
+        await ctx.send(f"計分方式已設為 {sm}")
+
     # TODO: 有人答對自動切題（`auto/auto_count`）
 
     @rule.command(name="show")
     async def show_rule(self, ctx):
-        msg = f"Rule:\n" \
-              f"Question amount: {self.question_amount}\n" \
-              f"Answer type: {self.ans_type}\n" \
-              f"Starting point of songs: {self.starting_point}\n" \
-              f"Song length: {self.song_length}\n"
+        msg = f"目前的規則：\n" \
+              f"題數: {self.question_amount}\n" \
+              f"要猜的欄位: {self.ans_type}\n" \
+              f"計分方式： {self.scoring_mode}\n" \
+              f"歌曲開始播放位置: {self.starting_point}\n" \
+              f"播放時間（0 表示不中斷）: {self.song_length}\n"
         await ctx.send(msg)

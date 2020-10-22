@@ -43,19 +43,32 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
 
         if op.lower() == "is":
             if "singer" in self.conditions:
-                for ops in self.conditions["singer"]:
-                    if ops[0] in ["==", "in"]:
-                        del ops
+                def select(item):
+                    if item[0] in ["==", "in"]:
+                        return False
+                    else:
+                        return True
+                self.conditions["singer"] = list(filter(select, self.conditions["singer"]))
             else:
                 self.conditions["singer"] = []
             self.conditions["singer"].append(("==", value))
         elif op.lower() == "include":
             if "singer" in self.conditions:
-                for ops in self.conditions["singer"]:
-                    if ops[0] == "==":
-                        del ops
-                    elif ops[0] == "in":
-                        ops[1].append(value)
+                def select(item):
+                    if item[0] == "==":
+                        return False
+                    elif item[0] == "in":
+                        return True
+                self.conditions["singer"] = list(filter(select, self.conditions["singer"]))
+                for opv in self.conditions["singer"]:
+                    if opv[0] == "in":
+                        if len(opv[1]) == 10:
+                            await ctx.send("最多只能 include 10 個")
+                            return
+                        opv[1].append(value)
+                        break
+                else:
+                    self.conditions["singer"].append(("in", [value]))
             else:
                 self.conditions["singer"] = []
                 self.conditions["singer"].append(("in", [value]))
@@ -78,29 +91,34 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
 
         if op == "==":
             if "year" in self.conditions:
-                for ops in self.conditions["year"]:
-                    if ops[0] in [">", ">=", "==", "<=", "<"]:
-                        del ops
+                def select(item):
+                    if item[0] in [">", ">=", "==", "<=", "<"]:
+                        return False
+                    else:
+                        return True
+                self.conditions["year"] = list(filter(select, self.conditions["year"]))
             else:
                 self.conditions["year"] = []
             self.conditions["year"].append(("==", value))
         elif op in [">", ">="]:
             if "year" in self.conditions:
-                for ops in self.conditions["year"]:
-                    if ops[0] in [">", ">=", "=="]:
-                        del ops
-                    elif ops[0] in ["<", "<="]:
-                        pass
+                def select(item):
+                    if item[0] in [">", ">=", "=="]:
+                        return False
+                    elif item[0] in ["<", "<="]:
+                        return True
+                self.conditions["year"] = list(filter(select, self.conditions["year"]))
             else:
                 self.conditions["year"] = []
             self.conditions["year"].append((op, value))
         elif op in ["<", "<="]:
             if "year" in self.conditions:
-                for ops in self.conditions["year"]:
-                    if ops[0] in ["<", "<=", "=="]:
-                        del ops
-                    elif ops[0] in [">", ">="]:
-                        pass
+                def select(item):
+                    if item[0] in ["<", "<=", "=="]:
+                        return False
+                    elif item[0] in [">", ">="]:
+                        return True
+                self.conditions["year"] = list(filter(select, self.conditions["year"]))
             else:
                 self.conditions["year"] = []
             self.conditions["year"].append((op, value))
@@ -118,22 +136,32 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
 
         if op.lower() == "is":
             if "tags" in self.conditions:
-                for ops in self.conditions["tags"]:
-                    if ops[0] in ["array_contains", "array_contains_any"]:
-                        del ops
+                def select(item):
+                    if item[0] in ["array_contains", "array_contains_any"]:
+                        return False
+                    else:
+                        return True
+                self.conditions["tags"] = list(filter(select, self.conditions["tags"]))
             else:
                 self.conditions["tags"] = []
             self.conditions["tags"].append(("array_contains", value))
         elif op.lower() == "include":
             if "tags" in self.conditions:
-                for ops in self.conditions["tags"]:
-                    if ops[0] == "array_contains":
-                        del ops
-                    elif ops[0] == "array_contains_any":
-                        if len(ops[1]) == 10:
-                            await ctx.send("tags 最多只能有 10 個")
+                def select(item):
+                    if item[0] == "array_contains":
+                        return False
+                    elif item[0] == "array_contains_any":
+                        return True
+                self.conditions["tags"] = list(filter(select, self.conditions["tags"]))
+                for opv in self.conditions["tags"]:
+                    if opv[0] == "array_contains_any":
+                        if len(opv[1]) == 10:
+                            await ctx.send("最多只能 include 10 個")
                             return
-                        ops[1].append(value)
+                        opv[1].append(value)
+                        break
+                else:
+                    self.conditions["tags"].append(("array_contains_any", [value]))
             else:
                 self.conditions["tags"] = []
                 self.conditions["tags"].append(("array_contains_any", [value]))
@@ -144,7 +172,7 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
 
     @cond.command(name="reset")
     async def reset_cond(self, ctx):
-        del self.conditions
+        self.conditions = {}
         await ctx.send("condition has been reset")
 
     @cond.command(name="show")
@@ -171,22 +199,30 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
                     fix_conds.append((field, op[0], op[1]))
             conflict_conds.append(range_conds)
 
-        for cc in conflict_conds:
-            if isinstance(cc, list):
-                query = cc + fix_conds
-            else:
-                query = [cc] + fix_conds
+        if not conflict_conds:
+            query = fix_conds
             result_sets.append(set(self.db.exec_get(self.theme, query)))
+        else:
+            for cc in conflict_conds:
+                if isinstance(cc, list):
+                    query = cc + fix_conds
+                else:
+                    query = [cc] + fix_conds
+                result_sets.append(set(self.db.exec_get(self.theme, query)))
 
-        return set.intersection(*result_sets)
+        if len(result_sets) == 1:
+            return list(result_sets[0])
+
+        return list(set.intersection(*result_sets))
 
     def get_questions(self):
-        if self.conditions not in self.cache:
-            result = self._send_get_query()
+        if str(self.conditions) not in self.cache:
+            results = self._send_get_query()
+            dict_result = [doc.to_dict() for doc in results]
             if len(self.cache) == 5:
                 self.cache.popitem(last=False)
-            self.cache[self.conditions] = result
-        return self.cache[self.conditions]
+            self.cache[str(self.conditions)] = dict_result
+        return self.cache[str(self.conditions)]
 
 class AnimeSgQDB(SgQDB):
     cond = SgQDB.cond
@@ -203,19 +239,32 @@ class AnimeSgQDB(SgQDB):
 
         if op.lower() == "is":
             if "anime" in self.conditions:
-                for ops in self.conditions["anime"]:
-                    if ops[0] in ["==", "in"]:
-                        del ops
+                def select(item):
+                    if item[0] in ["==", "in"]:
+                        return False
+                    else:
+                        return True
+                self.conditions["anime"] = list(filter(select, self.conditions["anime"]))
             else:
                 self.conditions["anime"] = []
             self.conditions["anime"].append(("==", value))
         elif op.lower() == "include":
             if "anime" in self.conditions:
-                for ops in self.conditions["anime"]:
-                    if ops[0] == "==":
-                        del ops
-                    elif ops[0] == "in":
-                        ops[1].append(value)
+                def select(item):
+                    if item[0] == "==":
+                        return False
+                    elif item[0] == "in":
+                        return True
+                self.conditions["anime"] = list(filter(select, self.conditions["anime"]))
+                for opv in self.conditions["anime"]:
+                    if opv[0] == "in":
+                        if len(opv[1]) == 10:
+                            await ctx.send("最多只能 include 10 個")
+                            return
+                        opv[1].append(value)
+                        break
+                else:
+                    self.conditions["anime"].append(("in", [value]))
             else:
                 self.conditions["anime"] = []
                 self.conditions["anime"].append(("in", [value]))
@@ -233,19 +282,32 @@ class AnimeSgQDB(SgQDB):
 
         if op.lower() == "is":
             if "type" in self.conditions:
-                for ops in self.conditions["type"]:
-                    if ops[0] in ["==", "in"]:
-                        del ops
+                def select(item):
+                    if item[0] in ["==", "in"]:
+                        return False
+                    else:
+                        return True
+                self.conditions["type"] = list(filter(select, self.conditions["type"]))
             else:
                 self.conditions["type"] = []
             self.conditions["type"].append(("==", value))
         elif op.lower() == "include":
             if "type" in self.conditions:
-                for ops in self.conditions["type"]:
-                    if ops[0] == "==":
-                        del ops
-                    elif ops[0] == "in":
-                        ops[1].append(value)
+                def select(item):
+                    if item[0] == "==":
+                        return False
+                    elif item[0] == "in":
+                        return True
+                self.conditions["type"] = list(filter(select, self.conditions["type"]))
+                for opv in self.conditions["type"]:
+                    if opv[0] == "in":
+                        if len(opv[1]) == 10:
+                            await ctx.send("最多只能 include 10 個")
+                            return
+                        opv[1].append(value)
+                        break
+                else:
+                    self.conditions["type"].append(("in", [value]))
             else:
                 self.conditions["type"] = []
                 self.conditions["type"].append(("in", [value]))

@@ -24,6 +24,18 @@ class FirestoreDB(DatabaseABC):
             db_query = ref.where(*q)
         return db_query.get()
 
+    def exec_add(self, collection: str, data: dict):
+        if not isinstance(data, dict):
+            raise ValueError
+        ref = self.db.collection(collection).document()
+        ref.set(data)
+
+    def exec_clear(self, collection: str):
+        ref = self.db.collection(collection)
+        docs = ref.stream()
+        for doc in docs:
+            doc.reference.delete()
+
     # def exec_query(self, query: list, ref: Union[None, Query]) -> Query:
     #     if len(query) != 3:
     #         raise ValueError
