@@ -19,9 +19,9 @@ class FirestoreDB(DatabaseABC):
         self.db = firebase_admin.firestore.client()     # type: firestore.Client
 
     def exec_get(self, collection: str, query: list):
-        db_query = ref = self.db.collection(collection)
+        db_query = self.db.collection(collection)
         for q in query:
-            db_query = ref.where(*q)
+            db_query = db_query.where(*q)
         return db_query.get()
 
     def exec_add(self, collection: str, data: dict):

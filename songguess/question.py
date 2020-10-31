@@ -34,9 +34,12 @@ class Question(object):
                 ie = await self.loop.run_in_executor(self.thread_pool,
                         functools.partial(self.downloader.extract_info, self.info["url"], download=True))
                 break
-            except Exception as e:
-                print(f"Error on download: {str(e)}")
+            except Exception:
+                # print(f"Error on download: {str(e)}")
+                self.downloader = youtube_dl.YoutubeDL(ytdl_opts)
+                await asyncio.sleep(5)
         else:
+            print(f"\nError on download: {self.info}\n")
             raise youtube_dl.utils.DownloadError
         return ie
 

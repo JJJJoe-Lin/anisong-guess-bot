@@ -3,7 +3,6 @@ from configparser import ConfigParser
 
 from .sg import SongGuess
 from .qdb import AnimeSgQDB
-from .scoring import Scoring
 from .db import FirestoreDB
 from .queue import QuestionQueue
 
@@ -13,9 +12,6 @@ def setup(bot):
     if not config.read(os.path.join(os.path.dirname(__file__), "../config.ini")):
         print("Can't read config file", file=sys.stderr)
         return
-
-    # initial scoring system
-    scoring = Scoring(bot, config)
 
     # initial database
     db_type = config.get("SongGuess", "database", fallback="firestore")
@@ -35,9 +31,8 @@ def setup(bot):
     q_queue = QuestionQueue(qdb, bot.loop, cache_size, thread_num)
 
     # initial song guess system
-    sg = SongGuess(bot, config, scoring, q_queue)
+    sg = SongGuess(bot, config, q_queue)
     
     # add bot Cog
-    bot.add_cog(scoring)
     bot.add_cog(qdb)
     bot.add_cog(sg)

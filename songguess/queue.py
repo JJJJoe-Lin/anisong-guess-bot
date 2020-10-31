@@ -26,13 +26,25 @@ class QuestionQueue(object):
         if not entries:
             return 0
 
-        if len(entries) > amount:
-            entries = random.sample(entries, amount)
-        else:
-            random.shuffle(entries)
+        # if len(entries) > amount:
+        #     entries = random.sample(entries, amount)
+        # else:
+        #     random.shuffle(entries)
 
-        for entry in entries:
-            assert entry["url"], "no download url"
+        # for entry in entries:
+        #     assert entry["url"], "no download url"
+        #     q = Question(entry, self.loop, self.thread_pool)
+        #     self.qlist.append(q)
+
+        while True:
+            if len(self.qlist) == amount:
+                break
+            if not entries:
+                break
+            entry = random.choice(entries)
+            entries.remove(entry)
+            if entry["anime"] in [q.info["anime"] for q in self.qlist]:
+                continue
             q = Question(entry, self.loop, self.thread_pool)
             self.qlist.append(q)
 
@@ -42,7 +54,14 @@ class QuestionQueue(object):
     async def get_question(self):
         if not self.qlist:
             return None
-        q = self.qlist.pop(0)
-        self._download_scheduling()
-        await q.task
-        return q
+        while self.qlist:
+            try:
+                q = self.qlist.pop(0)
+                self._download_scheduling()
+                await q.task
+            except Exception:
+                # print(f"The song {q.info['name']} got pass")
+                pass
+            else:
+                return q
+        return None
