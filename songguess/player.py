@@ -32,7 +32,8 @@ class MusicPlayer(object):
             bfOpt = bfOpt + " -t " + time_format_ffmpeg(length)
 
         # self.now_playing = discord.FFmpegPCMAudio(path, before_options=bfOpt, options="-vn")
-        source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
+        # source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
+        source = discord.FFmpegOpusAudio(path, before_options=bfOpt, options="-vn")
 
         # if self.now_playing["file"] and file != self.now_playing["file"]:
         #     self.stop_and_delete()

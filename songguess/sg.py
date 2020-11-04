@@ -1,4 +1,5 @@
 import os
+import math, random
 from functools import wraps
 
 from discord.ext import commands
@@ -55,7 +56,7 @@ class SongGuess(commands.Cog):
         self.config = config
         
         # attribute
-        self.support_starting_point = ["beginning", "intro", "chorus", "verse"]
+        self.support_starting_point = ["beginning", "intro", "chorus", "verse", "random"]
         self.support_scoring_mode = ["manual", "first-to-win"]
 
         # bot config
@@ -121,14 +122,21 @@ class SongGuess(commands.Cog):
             self.answer = q.info[self.ans_type]
         self.winners = []
         
-        start = q.info.get(self.starting_point, 0)
+        if self.starting_point == "beginning":
+            start = 0
+        elif self.starting_point == "random":
+            start = math.floor(random.uniform(0, 0.9) * int(q.task.result()["duration"]))
+        else:
+            start = q.info.get(self.starting_point, 0)
+
         length = self.song_length
         if start + length > int(q.task.result()["duration"]):
             if start > int(q.task.result()["duration"]):
                 print(f"start point {start} is bigger than length of the song {int(q.task.result()['duration'])}")
             length = 0
         
-        await self.player.play(f'{q.task.result()["id"]}.opus', start, length)
+        # await self.player.play(f'{q.task.result()["id"]}.opus', start, length)
+        await self.player.play(q.task.result()["path"], start, length)
         await ctx.send("New round start!")
 
     def _check_answer(self, str1, str2):
