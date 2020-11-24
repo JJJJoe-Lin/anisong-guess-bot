@@ -2,6 +2,7 @@ import os
 import math, random
 from functools import wraps
 
+import discord
 from discord.ext import commands
 
 from .player import MusicPlayer
@@ -29,14 +30,11 @@ def _setting_command(func):
         await func(self, ctx, *args, **kwargs)
     return wrap
 
-def _scoring_command(func):
+def _op_command(func):
     @wraps(func)
     async def wrap(self, ctx, *args, **kwargs):
-        if ctx.author.name not in self.player_info:
-            await ctx.send(f"Please join the game first.")
-            return
-        if self.scoring_mode != "manual":
-            await ctx.send(f"This command can only use in manual scoring mode.")
+        if ctx.author.name not in self.operator:
+            await ctx.send(f"This command is a op command.")
             return
         await func(self, ctx, *args, **kwargs)
     return wrap
@@ -57,7 +55,7 @@ class SongGuess(commands.Cog):
         
         # attribute
         self.support_starting_point = ["beginning", "intro", "chorus", "verse", "random"]
-        self.support_scoring_mode = ["manual", "first-to-win"]
+        self.support_scoring_mode = ["first-to-win"]
 
         # bot config
         self.cache_folder = config.get("SongGuess", "cache_folder", fallback=os.path.join(os.path.dirname(__file__), "../cache"))
@@ -75,6 +73,7 @@ class SongGuess(commands.Cog):
         self.song_length = config.getint("Rule", "song_length", fallback=0)
         self.question_amount = config.getint("Rule", "question_amount", fallback=1)
         self.need_season = config.getboolean("Rule", "need_season", fallback=False)
+        self.dup_anime = config.getboolean("Rule", "dup_anime", fallback=False)
 
         # initial objects
         self.player = MusicPlayer(self.cache_folder)
@@ -82,8 +81,10 @@ class SongGuess(commands.Cog):
 
         # game state
         self.is_playing = False
+        self.question = None
         self.answer = ""
         self.winners = []
+        self.operator = []
         self.player_info = {}
 
     async def _end_game(self, ctx):
@@ -104,7 +105,8 @@ class SongGuess(commands.Cog):
         await ctx.send("Game End!")
 
     async def _start_round(self, ctx):
-        q = await self.qlist.get_question()
+        self.question = await self.qlist.get_question()
+        q = self.question
         if not q:
             await ctx.send("all question end.")
             await self._end_game(ctx)
@@ -142,7 +144,7 @@ class SongGuess(commands.Cog):
     def _check_answer(self, str1, str2):
         return str1.lower().replace(" ","") == str2.lower().replace(" ","")
 
-    """ Game Control """
+    """ ----------------- Game Control ----------------- """
 
     @commands.command()
     async def summon(self, ctx):
@@ -157,6 +159,7 @@ class SongGuess(commands.Cog):
         await self.player.close()
 
     @commands.command()
+    @_op_command
     @_player_command
     async def play(self, ctx):
         if self.is_playing:
@@ -169,7 +172,7 @@ class SongGuess(commands.Cog):
         self._reset_point()
         self.is_playing = True
         
-        got = self.qlist.prepare(self.question_amount)
+        got = self.qlist.prepare(self.question_amount, self.dup_anime)
         if got < self.question_amount:
             await ctx.send(f"注意：符合條件的題目只有 {got} 題")
 
@@ -177,12 +180,15 @@ class SongGuess(commands.Cog):
 
     @commands.command(name="next", aliases=["n"])
     @_in_game_command
+    @_op_command
     @_player_command
     async def next_round(self, ctx):
-        await self._start_round(ctx)
+        if self.winners:
+            await self._start_round(ctx)
 
     @commands.command()
     @_in_game_command
+    @_op_command
     @_player_command
     async def end(self, ctx):
         await self._end_game(ctx)
@@ -195,6 +201,16 @@ class SongGuess(commands.Cog):
 
     @commands.command()
     @_in_game_command
+    @_op_command
+    @_player_command
+    async def replay_new(self, ctx):
+        if self.starting_point == "random":
+            start = math.floor(random.uniform(0, 0.9) * int(self.question.task.result()["duration"]))
+            self.player.set_now_playing_start(start)
+        await self.player.replay()
+
+    @commands.command()
+    @_in_game_command
     @_player_command
     async def stop(self, ctx):
         await self.player.stop()
@@ -202,24 +218,29 @@ class SongGuess(commands.Cog):
     @commands.command(aliases=["g"])
     @_in_game_command
     async def guess(self, ctx, *, answer):
-        if self.scoring_mode == "manual":
-            await ctx.send(f"{self.scoring_mode} 模式下請自己對答案")
-            return
-        if not self.winners and self._check_answer(answer, self.answer):
-            self._add_point(ctx.author.name, 1)
-            self.winners.append(ctx.author.name)
-            await ctx.send(f"{ctx.author.name} bingo!")
-            # self.next_round()
+        if self.scoring_mode == "first-to-win":
+            if not self.winners and self._check_answer(answer, self.answer):
+                self.winners.append(ctx.author.name)
+                self._add_point(ctx.author.name, 1)
+                embed=discord.Embed(title=f"{ctx.author.name} bingo! 答案是 {self.answer}", color=0xfbff00)
+                await ctx.send(embed=embed)
 
     @commands.command(name="answer")
     @_in_game_command
+    @_op_command
     async def show_answer(self, ctx):
         if self.scoring_mode == "first-to-win":
-            if "PC" not in self.winners:
+            if not self.winners:
                 self.winners.append("PC")
         await ctx.send(f"The answer is {self.answer}")
 
-    """ Rule Setting """
+    @commands.command(name="qinfo")
+    @_in_game_command
+    @_op_command
+    async def show_qinfo(self, ctx):
+        await ctx.send(f"{self.question.info}")
+
+    """ ----------------- Rule Setting ----------------- """
 
     @commands.group(case_insensitive=True)
     async def rule(self, ctx):
@@ -289,7 +310,18 @@ class SongGuess(commands.Cog):
         else:
             await ctx.send(f"答案格式已改成不需加上 season")
 
-    # TODO: 有人答對自動切題（`auto/auto_count`）
+    @rule.command(name="dup_anime")
+    @_setting_command
+    async def set_dup_anime(self, ctx, dup):
+        if dup.lower() not in ["true", "false"]:
+            await ctx.send(f"{dup} 只能是 True 或 False")
+            return
+
+        self.dup_anime = True if dup.lower() == "true" else False
+        if self.dup_anime:
+            await ctx.send(f"已允許題目有重複動畫")
+        else:
+            await ctx.send(f"已禁止題目有重複動畫")
 
     @rule.command(name="show")
     async def show_rule(self, ctx):
@@ -298,11 +330,12 @@ class SongGuess(commands.Cog):
               f"要猜的欄位：{self.ans_type}\n" \
               f"計分方式：{self.scoring_mode}\n" \
               f"答案需要加上 season：{self.need_season}\n" \
+              f"允許重複動畫：{self.dup_anime}\n" \
               f"歌曲開始播放位置：{self.starting_point}\n" \
               f"播放時間（0 表示不中斷）：{self.song_length}\n"
         await ctx.send(msg)
 
-    """ Scoring """
+    """ ----------------- Scoring ----------------- """
 
     @commands.command()
     async def join(self, ctx):
@@ -310,6 +343,8 @@ class SongGuess(commands.Cog):
             await ctx.send(f"{ctx.author.name} is already a player.")
             return
         self.player_info[ctx.author.name] = 0
+        if not self.operator:
+            self.operator.append(ctx.author.name)
         await ctx.send(f"{ctx.author.name} has joined.")
 
     @commands.command()
@@ -318,7 +353,28 @@ class SongGuess(commands.Cog):
             await ctx.send(f"Please join the game first.")
             return
         del self.player_info[ctx.author.name]
+        if ctx.author.name in self.operator:
+            self.operator.remove(ctx.author.name)
+            if len(self.operator) == 0 and len(self.player_info) > 0:
+                new_op = list(self.player_info)[0]
+                self.operator.append(new_op)
+                await ctx.send(f"new op is {new_op}")
         await ctx.send(f"{ctx.author.name} has left.")
+
+    @commands.command()
+    @_op_command
+    async def kick(self, ctx, name):
+        if name not in self.player_info:
+            await ctx.send(f"{name} is not a player.")
+            return
+        del self.player_info[name]
+        if name in self.operator:
+            self.operator.remove(name)
+            if len(self.operator) == 0 and len(self.player_info) > 0:
+                new_op = list(self.player_info)[0]
+                self.operator.append(new_op)
+                await ctx.send(f"new op is {new_op}")
+        await ctx.send(f"{name} has left.")
 
     @commands.command()
     async def scores(self, ctx):
@@ -326,6 +382,9 @@ class SongGuess(commands.Cog):
 
     def _add_point(self, player, point):
         self.player_info[player] += point
+
+    def _minus_point(self, player, point):
+        self.player_info[player] -= point
 
     def _set_point(self, player, point):
         self.player_info[player] = point
@@ -335,19 +394,56 @@ class SongGuess(commands.Cog):
             self.player_info[player] = 0
 
     @commands.command()
-    @_scoring_command
+    @_op_command
     async def add(self, ctx, player, point):
         self._add_point(player, int(point))
         await ctx.send(f"{player}: {self.player_info[player]}")
 
     @commands.command()
-    @_scoring_command
+    @_op_command
+    async def minus(self, ctx, player, point):
+        self._minus_point(player, int(point))
+        await ctx.send(f"{player}: {self.player_info[player]}")
+
+    @commands.command()
+    @_op_command
     async def setpoint(self, ctx, player, point):
         self._set_point(player, int(point))
         await ctx.send(f"{player}: {self.player_info[player]}")
 
     @commands.command()
-    @_scoring_command
+    @_op_command
     async def resetpoint(self, ctx):
         self._reset_point()
         await ctx.send(f"Points of all players have reset")
+
+    """ ----------------- Op ----------------- """
+
+    @commands.group(case_insensitive=True)
+    async def op(self, ctx):
+        pass
+
+    @op.command(name="add")
+    @_op_command
+    async def op_add(self, ctx, name):
+        if name not in self.player_info:
+            await ctx.send(f"{name} is not a player")
+            return
+        self.operator.append(name)
+        await ctx.send(f"{name} is a op now")
+
+    @op.command(name="kick")
+    @_op_command
+    async def op_kick(self, ctx, name):
+        if name not in self.operator:
+            await ctx.send(f"{name} is not a op")
+            return
+        if len(self.operator) == 1:
+            await ctx.send(f"{name} is the only op")
+            return
+        self.operator.remove(name)
+        await ctx.send(f"{name} is not a op now")
+
+    @op.command(name="list")
+    async def op_list(self, ctx):
+        await ctx.send(f"{self.operator}")

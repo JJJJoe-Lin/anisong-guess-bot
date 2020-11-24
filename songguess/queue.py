@@ -19,34 +19,34 @@ class QuestionQueue(object):
             if self.qlist[i].task is None:
                 self.qlist[i].set_download_task()
 
-    def prepare(self, amount):
+    def prepare(self, amount, is_anime_dup=False):
         self.qlist = []
         entries = self.qdb.get_questions()
 
         if not entries:
             return 0
 
-        # if len(entries) > amount:
-        #     entries = random.sample(entries, amount)
-        # else:
-        #     random.shuffle(entries)
-
-        # for entry in entries:
-        #     assert entry["url"], "no download url"
-        #     q = Question(entry, self.loop, self.thread_pool)
-        #     self.qlist.append(q)
-
-        while True:
-            if len(self.qlist) == amount:
-                break
-            if not entries:
-                break
-            entry = random.choice(entries)
-            entries.remove(entry)
-            if entry["anime"] in [q.info["anime"] for q in self.qlist]:
-                continue
-            q = Question(entry, self.loop, self.thread_pool)
-            self.qlist.append(q)
+        if is_anime_dup:
+            if len(entries) > amount:
+                entries = random.sample(entries, amount)
+            else:
+                random.shuffle(entries)
+            for entry in entries:
+                assert entry["url"], "no download url"
+                q = Question(entry, self.loop, self.thread_pool)
+                self.qlist.append(q)
+        else:
+            while True:
+                if len(self.qlist) == amount:
+                    break
+                if not entries:
+                    break
+                entry = random.choice(entries)
+                entries.remove(entry)
+                if entry["anime"] in [q.info["anime"] for q in self.qlist]:
+                    continue
+                q = Question(entry, self.loop, self.thread_pool)
+                self.qlist.append(q)
 
         self._download_scheduling()
         return len(self.qlist)
@@ -56,8 +56,8 @@ class QuestionQueue(object):
             return None
         while self.qlist:
             try:
-                q = self.qlist.pop(0)
                 self._download_scheduling()
+                q = self.qlist.pop(0)
                 await q.task
             except Exception:
                 # print(f"The song {q.info['name']} got pass")

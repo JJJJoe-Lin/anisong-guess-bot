@@ -35,10 +35,6 @@ class MusicPlayer(object):
         # source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
         source = discord.FFmpegOpusAudio(path, before_options=bfOpt, options="-vn")
 
-        # if self.now_playing["file"] and file != self.now_playing["file"]:
-        #     self.stop_and_delete()
-        # else:
-        #     self.stop()
         self.stop()
         self.voiceClient.play(source)
 
@@ -66,6 +62,8 @@ class MusicPlayer(object):
         assert self.is_connected, "Player is not running"
         await self.play(**self.now_playing)
 
+    def set_now_playing_start(self, start=0):
+        self.now_playing["start"] = start
 
 def time_format_ffmpeg(s: int):
     sec = int(s % 60)

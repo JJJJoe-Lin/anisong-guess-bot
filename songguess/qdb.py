@@ -224,6 +224,15 @@ class SgQDB(commands.Cog, QuestionDB, metaclass=CogABCMeta):
             self.cache[str(self.conditions)] = dict_result
         return self.cache[str(self.conditions)]
 
+    @commands.command()
+    async def refetch(self, ctx):
+        results = self._send_get_query()
+        dict_result = [doc.to_dict() for doc in results]
+        if len(self.cache) == 5:
+            self.cache.popitem(last=False)
+        self.cache[str(self.conditions)] = dict_result
+        await ctx.send(f"refetch complete.")
+
 class AnimeSgQDB(SgQDB):
     cond = SgQDB.cond
 
