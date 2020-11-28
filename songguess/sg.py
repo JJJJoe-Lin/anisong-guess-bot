@@ -1,6 +1,8 @@
-import os
+import os, asyncio
 import math, random
+from enum import Enum
 from functools import wraps
+from difflib import SequenceMatcher
 
 import discord
 from discord.ext import commands
@@ -8,6 +10,8 @@ from discord.ext import commands
 from .player import MusicPlayer
 from .queue import QuestionQueue
 from .scoring import Scoring
+from .gamers import Gamers
+
 
 def _in_game_command(func):
     @wraps(func)
@@ -15,11 +19,12 @@ def _in_game_command(func):
         if not self.is_playing:
             await ctx.send(f"This command can only use in game running.")
             return
-        if ctx.author.name not in self.player_info:
+        if ctx.author.name not in self.gamers.info:
             await ctx.send(f"Please join the game first.")
             return
         await func(self, ctx, *args, **kwargs)
     return wrap
+
 
 def _setting_command(func):
     @wraps(func)
@@ -30,6 +35,7 @@ def _setting_command(func):
         await func(self, ctx, *args, **kwargs)
     return wrap
 
+
 def _op_command(func):
     @wraps(func)
     async def wrap(self, ctx, *args, **kwargs):
@@ -38,6 +44,7 @@ def _op_command(func):
             return
         await func(self, ctx, *args, **kwargs)
     return wrap
+
 
 def _player_command(func):
     @wraps(func)
@@ -48,6 +55,7 @@ def _player_command(func):
         await func(self, ctx, *args, **kwargs)
     return wrap
 
+
 class SongGuess(commands.Cog):
     def __init__(self, bot, config, queue: QuestionQueue):
         self.bot = bot
@@ -55,7 +63,7 @@ class SongGuess(commands.Cog):
         
         # attribute
         self.support_starting_point = ["beginning", "intro", "chorus", "verse", "random"]
-        self.support_scoring_mode = ["first-to-win"]
+        self.support_scoring_mode = ["first-to-win", "timing-rush"]
 
         # bot config
         self.cache_folder = config.get("SongGuess", "cache_folder", fallback=os.path.join(os.path.dirname(__file__), "../cache"))
@@ -78,17 +86,20 @@ class SongGuess(commands.Cog):
         # initial objects
         self.player = MusicPlayer(self.cache_folder)
         self.qlist = queue
+        self.gamers = Gamers()
+        self.timer = None
 
+        self.operator = []
         # game state
         self.is_playing = False
+        self.running_channel = None
+        # round state
         self.question = None
         self.answer = ""
         self.winners = []
-        self.operator = []
-        self.player_info = {}
+        self.round_end = False
 
     async def _end_game(self, ctx):
-        # self.player.stop_and_delete()
         self.player.stop()
         
         for file in os.listdir(self.cache_folder):
@@ -97,23 +108,23 @@ class SongGuess(commands.Cog):
             except Exception as e:
                 print(f"Error trying to delete {file}: {str(e)}")
         
-        # reset game state
-        self.answer = ""
-        self.is_playing = False
-        self.winners = []
+        await self._broadcast_msg("Game End!")
         
-        await ctx.send("Game End!")
+        # reset game state
+        self.is_playing = False
+        self.running_channel = None
 
     async def _start_round(self, ctx):
         self.question = await self.qlist.get_question()
         q = self.question
+        
         if not q:
-            await ctx.send("all question end.")
+            await self._broadcast_msg("all question end.")
             await self._end_game(ctx)
             return
         
         if self.ans_type not in q.info:
-            await ctx.send("無法取得答案，請確認 answer_type 是否設定正確")
+            await self._broadcast_msg("無法取得答案，請確認 answer_type 是否設定正確")
             await self._end_game(ctx)
             return
 
@@ -123,26 +134,65 @@ class SongGuess(commands.Cog):
         else:
             self.answer = q.info[self.ans_type]
         self.winners = []
+        self.round_end = False
         
-        if self.starting_point == "beginning":
-            start = 0
-        elif self.starting_point == "random":
-            start = math.floor(random.uniform(0, 0.9) * int(q.task.result()["duration"]))
-        else:
-            start = q.info.get(self.starting_point, 0)
+        start = self._get_song_start(q)
+        length = self._get_song_play_time(q, start)
+        
+        embed = discord.Embed(title=f"Question {self.qlist.number} start!", color=MsgLevel.LEVEL2.value)
+        await self._broadcast_msg(embed=embed)
+        await self.player.play(q.song_info["path"], start, length)
 
-        length = self.song_length
-        if start + length > int(q.task.result()["duration"]):
-            if start > int(q.task.result()["duration"]):
-                print(f"start point {start} is bigger than length of the song {int(q.task.result()['duration'])}")
-            length = 0
-        
-        # await self.player.play(f'{q.task.result()["id"]}.opus', start, length)
-        await self.player.play(q.task.result()["path"], start, length)
-        await ctx.send("New round start!")
+    def _get_song_start(self, q):
+        if self.starting_point == "beginning":
+            return 0
+        elif self.starting_point == "random":
+            return math.floor(random.uniform(0, 0.9) * int(q.song_info["duration"]))
+        else:
+            return q.info.get(self.starting_point, 0)
+
+    def _get_song_play_time(self, q, start):
+        if start + self.song_length > int(q.song_info["duration"]):
+            if start > int(q.song_info["duration"]):
+                # Error on starting point of the question
+                print(f"start point {start} is bigger than length of the song {int(q.song_info['duration'])}")
+            return 0
+        return self.song_length
 
     def _check_answer(self, str1, str2):
-        return str1.lower().replace(" ","") == str2.lower().replace(" ","")
+        return SequenceMatcher(None, str1.lower().replace(" ",""), str2.lower().replace(" ","")).ratio()
+
+    def _startTimer(self):
+        async def countdown():
+            try:
+                zh_num = 0
+                other_num = 0 
+                for ch in self.answer:
+                    if ch >= "\u4E00" and ch <= "\u9FFF":
+                        zh_num += 1
+                    else:
+                        other_num += 1
+                sec = (zh_num * 1.5) + (other_num * 0.5)
+                await asyncio.sleep(sec)
+
+                self.round_end = True
+                msg = f"回合結束！答案是 {self.answer}\n答對的人有："
+                msg += ", ".join(self.winners)
+                embed = discord.Embed(title=msg, color=MsgLevel.LEVEL5.value)
+                await self._broadcast_msg(embed=embed)
+            except asyncio.CancelledError:
+                pass
+
+        self.timer = self.bot.loop.create_task(countdown())
+
+    async def _broadcast_msg(self, msg=None, exclusion=[], *, embed=None):
+        assert self.is_playing
+        assert self.running_channel is not None
+
+        if self.scoring_mode == "first-to-win":
+            await self.running_channel.send(msg, embed=embed)
+        elif self.scoring_mode == "timing-rush":
+            await self.gamers.send_to_all_gamers(msg, exclusion, embed=embed)
 
     """ ----------------- Game Control ----------------- """
 
@@ -166,11 +216,16 @@ class SongGuess(commands.Cog):
             await ctx.send("Game is already running.")
             return
 
+        if ctx.channel.type != discord.ChannelType.text:
+            await ctx.send("Please start game at text channel.")
+            return
+
         await ctx.send("Game loading...")
 
         # reset game state
-        self._reset_point()
+        self.gamers.reset_all_scores()
         self.is_playing = True
+        self.running_channel = ctx.channel
         
         got = self.qlist.prepare(self.question_amount, self.dup_anime)
         if got < self.question_amount:
@@ -183,7 +238,7 @@ class SongGuess(commands.Cog):
     @_op_command
     @_player_command
     async def next_round(self, ctx):
-        if self.winners:
+        if self.round_end:
             await self._start_round(ctx)
 
     @commands.command()
@@ -204,10 +259,9 @@ class SongGuess(commands.Cog):
     @_op_command
     @_player_command
     async def replay_new(self, ctx):
-        if self.starting_point == "random":
-            start = math.floor(random.uniform(0, 0.9) * int(self.question.task.result()["duration"]))
-            self.player.set_now_playing_start(start)
-        await self.player.replay()
+        start = self._get_song_start(self.question)
+        play_time = self._get_song_play_time(self.question, start)
+        await self.player.play(self.question.song_info["path"], start, play_time)
 
     @commands.command()
     @_in_game_command
@@ -219,26 +273,63 @@ class SongGuess(commands.Cog):
     @_in_game_command
     async def guess(self, ctx, *, answer):
         if self.scoring_mode == "first-to-win":
-            if not self.winners and self._check_answer(answer, self.answer):
+            if not self.round_end and self._check_answer(answer, self.answer) == 1.0:
                 self.winners.append(ctx.author.name)
-                self._add_point(ctx.author.name, 1)
-                embed=discord.Embed(title=f"{ctx.author.name} bingo! 答案是 {self.answer}", color=0xfbff00)
+                self.gamers.add_points(ctx.author.name, 1)
+                self.round_end = True
+                embed = discord.Embed(title=f"{ctx.author.name} bingo! 答案是 {self.answer}", color=MsgLevel.LEVEL4.value)
                 await ctx.send(embed=embed)
+        elif self.scoring_mode == "timing-rush":
+            if ctx.channel.type != discord.ChannelType.private:
+                return
+            if self.round_end:
+                return
+            if ctx.author.name in self.winners:
+                return
+            acc = self._check_answer(answer, self.answer)
+            if acc == 1.0:
+                self.winners.append(ctx.author.name)
+                if len(self.winners) == len(self.gamers.info):
+                    self.round_end = True
+                    if self.timer:
+                        self.timer.cancel()
+                        self.timer = None
+                # send message
+                if len(self.gamers.info) > 1 and len(self.winners) == 1:
+                    self.gamers.add_points(ctx.author.name, 2)
+                    embed = discord.Embed(title=f"你答對了！", color=MsgLevel.LEVEL4.value)
+                    await ctx.send(embed=embed)
+                    embed = discord.Embed(title=f"有人答對了，開始倒數", color=MsgLevel.LEVEL1.value)
+                    await self.gamers.send_to_all_gamers(exclusion=[ctx.author.name], embed=embed)
+                    self._startTimer()
+                else:
+                    self.gamers.add_points(ctx.author.name, 1)
+                    embed = discord.Embed(title=f"你答對了！", color=MsgLevel.LEVEL4.value)
+                    await ctx.send(embed=embed)
+                if len(self.winners) == len(self.gamers.info):
+                    msg = f"所有人都答對了，答案是 {self.answer}\n回答順序："
+                    msg += ", ".join(self.winners)
+                    embed = discord.Embed(title=msg, color=MsgLevel.LEVEL5.value)
+                    await self.gamers.send_to_all_gamers(embed=embed)
+            elif acc > 0.5:
+                embed = discord.Embed(title=f"{answer} 已經很接近了", color=MsgLevel.LEVEL3.value)
+                await ctx.send(embed=embed)
+            else:
+                await self.gamers.send_to_all_gamers(f"{ctx.author.name} 猜 {answer}", [ctx.author.name])
 
     @commands.command(name="answer")
     @_in_game_command
     @_op_command
     async def show_answer(self, ctx):
-        if self.scoring_mode == "first-to-win":
-            if not self.winners:
-                self.winners.append("PC")
-        await ctx.send(f"The answer is {self.answer}")
+        self.round_end = True
+        await self._broadcast_msg(f"The answer is {self.answer}")
 
     @commands.command(name="qinfo")
     @_in_game_command
     @_op_command
     async def show_qinfo(self, ctx):
-        await ctx.send(f"{self.question.info}")
+        if self.round_end:
+            await ctx.send(f"{self.question.info}")
 
     """ ----------------- Rule Setting ----------------- """
 
@@ -339,24 +430,24 @@ class SongGuess(commands.Cog):
 
     @commands.command()
     async def join(self, ctx):
-        if ctx.author.name in self.player_info:
+        if self.gamers.check_if_gamer(ctx.author.name):
             await ctx.send(f"{ctx.author.name} is already a player.")
             return
-        self.player_info[ctx.author.name] = 0
+        self.gamers.add(ctx.author)
         if not self.operator:
             self.operator.append(ctx.author.name)
         await ctx.send(f"{ctx.author.name} has joined.")
 
     @commands.command()
     async def leave(self, ctx):
-        if ctx.author.name not in self.player_info:
+        if not self.gamers.check_if_gamer(ctx.author.name):
             await ctx.send(f"Please join the game first.")
             return
-        del self.player_info[ctx.author.name]
+        self.gamers.remove(ctx.author.name)
         if ctx.author.name in self.operator:
             self.operator.remove(ctx.author.name)
-            if len(self.operator) == 0 and len(self.player_info) > 0:
-                new_op = list(self.player_info)[0]
+            if len(self.operator) == 0 and len(self.gamers.info) > 0:
+                new_op = self.gamers.random_choose()
                 self.operator.append(new_op)
                 await ctx.send(f"new op is {new_op}")
         await ctx.send(f"{ctx.author.name} has left.")
@@ -364,57 +455,54 @@ class SongGuess(commands.Cog):
     @commands.command()
     @_op_command
     async def kick(self, ctx, name):
-        if name not in self.player_info:
+        if not self.gamers.check_if_gamer(name):
             await ctx.send(f"{name} is not a player.")
             return
-        del self.player_info[name]
+        self.gamers.remove(name)
         if name in self.operator:
             self.operator.remove(name)
-            if len(self.operator) == 0 and len(self.player_info) > 0:
-                new_op = list(self.player_info)[0]
+            if len(self.operator) == 0 and len(self.gamers.info) > 0:
+                new_op = self.gamers.random_choose()
                 self.operator.append(new_op)
                 await ctx.send(f"new op is {new_op}")
         await ctx.send(f"{name} has left.")
 
     @commands.command()
     async def scores(self, ctx):
-        await ctx.send(f"{self.player_info}")
-
-    def _add_point(self, player, point):
-        self.player_info[player] += point
-
-    def _minus_point(self, player, point):
-        self.player_info[player] -= point
-
-    def _set_point(self, player, point):
-        self.player_info[player] = point
-
-    def _reset_point(self):
-        for player in self.player_info:
-            self.player_info[player] = 0
+        scores = self.gamers.get_all_scores()
+        await ctx.send(f"{scores}")
 
     @commands.command()
     @_op_command
-    async def add(self, ctx, player, point):
-        self._add_point(player, int(point))
-        await ctx.send(f"{player}: {self.player_info[player]}")
+    async def add(self, ctx, player, points):
+        try:
+            self.gamers.add_points(player, points)
+            await ctx.send(f"{player}: {self.gamers.get_score(player)}")
+        except ValueError:
+            await ctx.send(f"{player} is not a player")
 
     @commands.command()
     @_op_command
-    async def minus(self, ctx, player, point):
-        self._minus_point(player, int(point))
-        await ctx.send(f"{player}: {self.player_info[player]}")
+    async def minus(self, ctx, player, points):
+        try:
+            self.gamers.deduct_points(player, points)
+            await ctx.send(f"{player}: {self.gamers.get_score(player)}")
+        except ValueError:
+            await ctx.send(f"{player} is not a player")
 
     @commands.command()
     @_op_command
     async def setpoint(self, ctx, player, point):
-        self._set_point(player, int(point))
-        await ctx.send(f"{player}: {self.player_info[player]}")
+        try:
+            self.gamers.set_score(player, point)
+            await ctx.send(f"{player}: {self.gamers.get_score(player)}")
+        except ValueError:
+            await ctx.send(f"{player} is not a player")
 
     @commands.command()
     @_op_command
     async def resetpoint(self, ctx):
-        self._reset_point()
+        self.gamers.reset_all_scores()
         await ctx.send(f"Points of all players have reset")
 
     """ ----------------- Op ----------------- """
@@ -426,7 +514,7 @@ class SongGuess(commands.Cog):
     @op.command(name="add")
     @_op_command
     async def op_add(self, ctx, name):
-        if name not in self.player_info:
+        if name not in self.gamers.info:
             await ctx.send(f"{name} is not a player")
             return
         self.operator.append(name)
@@ -447,3 +535,12 @@ class SongGuess(commands.Cog):
     @op.command(name="list")
     async def op_list(self, ctx):
         await ctx.send(f"{self.operator}")
+
+
+class MsgLevel(Enum):
+    LEVEL1 = 0xff0000
+    LEVEL2 = 0xffff00
+    LEVEL3 = 0xff00ff
+    LEVEL4 = 0x00ff00
+    LEVEL5 = 0x0000ff
+    LEVEL6 = 0x00ffff
