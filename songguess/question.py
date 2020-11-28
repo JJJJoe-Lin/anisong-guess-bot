@@ -9,6 +9,7 @@ class Question(object):
         self.loop = loop
         self.task = None
         self.thread_pool = thread_pool
+        self.song_info = {}
 
     def set_download_task(self):
         self.task = self.loop.create_task(self._download_song())
@@ -16,19 +17,21 @@ class Question(object):
     async def _download_song(self):
         assert self.info["url"], "no download url"
 
-        ie = {}
         if self.info["url"].find("watch?v") != -1:
-            ie["id"] = self.info["url"].split("/")[-1].replace("watch?v=", "")
+            self.song_info["id"] = self.info["url"].split("/")[-1].replace("watch?v=", "")
         else:
-            ie["id"] = self.info["url"].split("/")[-1]
+            self.song_info["id"] = self.info["url"].split("/")[-1]
         
         for _ in range(5):
             try:
-                downloader = await self.loop.run_in_executor(self.thread_pool,
-                                functools.partial(pytube.YouTube, self.info["url"]))
-                ie["duration"] = int(downloader.length)
-                ie["path"] = await self.loop.run_in_executor(self.thread_pool,
-                                functools.partial(downloader.streams.filter(only_audio=True).order_by("abr").last().download, output_path="cache", filename=ie["id"]))
+                downloader = await self.loop.run_in_executor(
+                    self.thread_pool, functools.partial(pytube.YouTube, self.info["url"]))
+                self.song_info["duration"] = int(downloader.length)
+                self.song_info["path"] = await self.loop.run_in_executor(
+                    self.thread_pool,
+                    functools.partial(downloader.streams.filter(only_audio=True).order_by("abr").last().download,
+                                      output_path="cache", filename=self.song_info["id"])
+                    )
                 break
             except Exception as e:
                 print(f"Error on download: {str(e)}")
@@ -36,6 +39,6 @@ class Question(object):
         else:
             print(f"\nError on download: {self.info}\n")
             raise pytube.exceptions.PytubeError
-        return ie
+        return self.song_info
 
     

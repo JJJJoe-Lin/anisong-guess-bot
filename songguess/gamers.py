@@ -1,3 +1,4 @@
+import asyncio
 import random
 
 class Gamers(object):
@@ -67,8 +68,11 @@ class Gamers(object):
         # check msg exist
         if not msg and not embed:
             raise ValueError
-
+        
+        send_task = []
         for k, v in self.info.items():
             if k not in exclusion:
-                await v["user"].send(msg, embed=embed)
+                send_task.append(asyncio.ensure_future(v["user"].send(msg, embed=embed)))
+                # await v["user"].send(msg, embed=embed)
+        await asyncio.gather(*send_task)
 

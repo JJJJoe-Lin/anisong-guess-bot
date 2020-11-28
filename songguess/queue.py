@@ -9,9 +9,10 @@ class QuestionQueue(object):
         self.qdb = qdb
         self.loop = event_loop
         self.cache_size = cache_size
+        self.thread_pool = ThreadPoolExecutor(max_workers=thread_num)
 
         self.qlist = []
-        self.thread_pool = ThreadPoolExecutor(max_workers=thread_num)
+        self.number = 0
 
     def _download_scheduling(self):
         size = self.cache_size if len(self.qlist) > self.cache_size else len(self.qlist)
@@ -20,9 +21,11 @@ class QuestionQueue(object):
                 self.qlist[i].set_download_task()
 
     def prepare(self, amount, is_anime_dup=False):
+        # reset queue
         self.qlist = []
+        self.number = 0
+        
         entries = self.qdb.get_questions()
-
         if not entries:
             return 0
 
@@ -56,8 +59,10 @@ class QuestionQueue(object):
             return None
         while self.qlist:
             try:
+                # ensure download task been scheduled
                 self._download_scheduling()
                 q = self.qlist.pop(0)
+                self.number += 1
                 await q.task
             except Exception:
                 # print(f"The song {q.info['name']} got pass")

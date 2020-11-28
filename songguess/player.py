@@ -4,6 +4,14 @@ from collections import deque
 
 import discord
 
+
+def _time_format_ffmpeg(s: int):
+    sec = int(s % 60)
+    mins = int((s / 60) % 60)
+    hours = int(s / 3600)
+    return f"{hours:02d}:{mins:02d}:{sec:02d}"
+
+
 class MusicPlayer(object):
     def __init__(self, cache: str):
         self.voiceClient = None
@@ -27,9 +35,9 @@ class MusicPlayer(object):
 
         bfOpt = "-nostdin"
         if start != 0:
-            bfOpt = bfOpt + " -ss " + time_format_ffmpeg(start)
+            bfOpt = bfOpt + " -ss " + _time_format_ffmpeg(start)
         if length != 0:
-            bfOpt = bfOpt + " -t " + time_format_ffmpeg(length)
+            bfOpt = bfOpt + " -t " + _time_format_ffmpeg(length)
 
         # self.now_playing = discord.FFmpegPCMAudio(path, before_options=bfOpt, options="-vn")
         # source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
@@ -47,29 +55,7 @@ class MusicPlayer(object):
         if self.voiceClient.is_playing():
             self.voiceClient.stop()
 
-    def _delete_file(self, path):
-        try:
-            os.unlink(path)
-        except Exception as e:
-            print(f"Error trying to delete {path}: {str(e)}")
-
-    def stop_and_delete(self):
-        assert self.is_connected, "Player is not running"
-        self.stop()
-        self._delete_file(os.path.join(self.cacheFolder, self.now_playing["file"]))
-
     async def replay(self):
         assert self.is_connected, "Player is not running"
         await self.play(**self.now_playing)
-
-    def set_now_playing_start(self, start=0):
-        self.now_playing["start"] = start
-
-def time_format_ffmpeg(s: int):
-    sec = int(s % 60)
-    mins = int((s / 60) % 60)
-    hours = int(s / 3600)
-    return f"{hours:02d}:{mins:02d}:{sec:02d}"
-
-
     
