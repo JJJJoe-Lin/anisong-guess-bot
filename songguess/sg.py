@@ -172,7 +172,7 @@ class SongGuess(commands.Cog):
                         zh_num += 1
                     else:
                         other_num += 1
-                sec = (zh_num * 1.5) + (other_num * 0.5)
+                sec = 3 + (zh_num * 1) + (other_num * 0.4)
                 await asyncio.sleep(sec)
 
                 self.round_end = True
