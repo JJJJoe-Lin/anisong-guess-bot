@@ -40,8 +40,8 @@ class MusicPlayer(object):
             bfOpt = bfOpt + " -t " + _time_format_ffmpeg(length)
 
         # self.now_playing = discord.FFmpegPCMAudio(path, before_options=bfOpt, options="-vn")
-        # source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
-        source = discord.FFmpegOpusAudio(path, before_options=bfOpt, options="-vn")
+        source = await discord.FFmpegOpusAudio.from_probe(path, before_options=bfOpt, options="-vn")
+        # source = discord.FFmpegOpusAudio(path, before_options=bfOpt, options="-vn")
 
         self.stop()
         self.voiceClient.play(source)
